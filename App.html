@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Live Geofence with Weather Forecast</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.1.0/css/bootstrap.min.css">
+    <style>
+        #mymap { width: 100%; height: 500px; }
+        .textarea-part { margin-top: 20px; }
+        .weather { margin-top: 20px; }
+        .weather-item { margin-bottom: 10px; }
+        .error { color: red; margin-top: 10px; }
+        .weather-section { margin-top: 10px; }
+        .weather-section h6 { font-weight: bold; }
+    </style>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyATa_bzaKqTYmStTJ4zNtgCeO12fpkpMY4&libraries=drawing"></script>
+</head>
+<body>
+<div class="container">
+    <h1 class="mt-4">Live Geofence with Weather Forecast</h1>
+    <div class="row">
+        <div class="col-sm-8">
+            <div id="mymap"></div>
+        </div>
+        <div class="col-sm-4">
+            <div class="textarea-part">
+                <textarea class="form-control" name="coordinates" id="coordinates" cols="30" rows="10" readonly></textarea>
+                <button class="btn btn-info btn-apply mt-2" id="fetchWeather">Get Weather</button>
+                <div id="error" class="error"></div>
+            </div>
+            <div id="weather" class="weather"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let map, drawingManager, polygon = null;
+    const weatherContainer = document.getElementById('weather');
+    const coordinatesTextarea = document.getElementById('coordinates');
+    const errorContainer = document.getElementById('error');
+
+    // Initialize map
+    function initMap() {
+        map = new google.maps.Map(document.getElementById('mymap'), {
+            center: { lat: 37.7749, lng: -122.4194 }, // Example: San Francisco
+            zoom: 10,
+        });
+
+        drawingManager = new google.maps.drawing.DrawingManager({
+            drawingMode: google.maps.drawing.OverlayType.POLYGON,
+            drawingControl: true,
+            drawingControlOptions: {
+                position: google.maps.ControlPosition.TOP_CENTER,
+                drawingModes: ['polygon'],
+            },
+            polygonOptions: {
+                editable: true,
+                draggable: true,
+            },
+        });
+
+        drawingManager.setMap(map);
+
+        google.maps.event.addListener(drawingManager, 'overlaycomplete', function (event) {
+            if (polygon) polygon.setMap(null); // Remove previous polygon
+            polygon = event.overlay;
+            updateCoordinates();
+            google.maps.event.addListener(polygon.getPath(), 'set_at', updateCoordinates);
+            google.maps.event.addListener(polygon.getPath(), 'insert_at', updateCoordinates);
+        });
+    }
+
+    // Update the coordinates display area
+    function updateCoordinates() {
+        if (!polygon) return;
+        const path = polygon.getPath();
+        const coordinates = [];
+        for (let i = 0; i < path.length; i++) {
+            const latLng = path.getAt(i);
+            coordinates.push({ lat: latLng.lat(), lng: latLng.lng() });
+        }
+        coordinatesTextarea.value = JSON.stringify(coordinates, null, 2);
+    }
+
+    // Fetch weather data based on polygon center
+    async function fetchWeather() {
+        errorContainer.innerHTML = ''; // Clear any previous error messages
+        weatherContainer.innerHTML = ''; // Clear previous weather data
+
+        if (!polygon) {
+            errorContainer.innerHTML = 'Please draw a polygon first!';
+            return;
+        }
+
+        // Get the center of the polygon
+        const bounds = new google.maps.LatLngBounds();
+        polygon.getPath().forEach(latLng => bounds.extend(latLng));
+        const center = bounds.getCenter();
+        const lat = center.lat();
+        const lng = center.lng();
+
+        // WeatherAPI call for forecast
+        const apiKey = '0785dd64803848889be75811250701'; // Replace with your WeatherAPI key
+        const weatherApiUrl = `https://api.weatherapi.com/v1/forecast.json?key=${apiKey}&q=${lat},${lng}&days=3`;
+
+        try {
+            const response = await fetch(weatherApiUrl);
+            if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+            const data = await response.json();
+            displayWeather(data);
+        } catch (error) {
+            errorContainer.innerHTML = 'Error fetching weather: ' + error.message;
+        }
+    }
+
+    // Display weather data
+    function displayWeather(data) {
+        weatherContainer.innerHTML = '<h5>Weather Forecast</h5>';
+
+        const forecastDays = data.forecast.forecastday;
+
+        forecastDays.forEach((forecast) => {
+            const date = new Date(forecast.date);
+            const formattedDate = date.toLocaleDateString(undefined, {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+            });
+
+            const temp = forecast.day.avgtemp_c;
+            const condition = forecast.day.condition.text;
+            const icon = forecast.day.condition.icon;
+
+            weatherContainer.innerHTML += `
+                <div class="weather-section">
+                    <h6>${formattedDate}</h6>
+                    <p><img src="${icon}" alt="${condition}"> ${condition}</p>
+                    <p>Average Temperature: ${temp}°C</p>
+                </div>`;
+        });
+    }
+
+    // Event listener to fetch weather data when button is clicked
+    document.getElementById('fetchWeather').addEventListener('click', fetchWeather);
+
+    // Initialize the map
+    initMap();
+</script>
+
+</body>
+</html>
